@@ -38,11 +38,13 @@ public class SmartPrecipitationAnalyser {
     static List<Sensor> sensors = new ArrayList<Sensor>();
     static List<Actuator> actuators = new ArrayList<Actuator>();
 
-    static int numOfAreas = 1;
-    static int numOfCamerasPerArea=2;
-    static double CAM_TRANSMISSION_TIME = 5;
-
     private static boolean CLOUD = false;
+
+    // represent the field area in which the cameras will be disposed
+    static int numOfAreas = 2;
+    // number of cameras per area in the field
+    static int numOfCamerasPerArea = 4;
+    static double CAMERA_DELAY = 2;
 
     public static void main(String[] args) {
         Log.printLine("Starting smart precipitation analyser system...");
@@ -53,7 +55,7 @@ public class SmartPrecipitationAnalyser {
             int numOfUser = 1;
             Calendar calendar = Calendar.getInstance();
             // set trace events to false
-            boolean trace_flag = false;
+            boolean trace_flag = true;
             CloudSim.init(numOfUser, calendar, trace_flag);
             // application identifier
             String appId = "SmartPrecipitationAnalyser";
@@ -91,9 +93,11 @@ public class SmartPrecipitationAnalyser {
             controller = new Controller("master-controller", fogDevices, sensors,
                     actuators);
 
-            controller.submitApplication(app,
-                    (CLOUD)?(new ModulePlacementMapping(fogDevices, app, moduleMapping))
-                            :(new ModulePlacementEdgewards(fogDevices, sensors, actuators, app, moduleMapping)));
+            if(CLOUD){
+                controller.submitApplication(app, new ModulePlacementMapping(fogDevices, app, moduleMapping));
+            }else {
+                controller.submitApplication(app, new ModulePlacementEdgewards(fogDevices, sensors, actuators, app, moduleMapping));
+            }
 
             TimeKeeper.getInstance().setSimulationStartTime(Calendar.getInstance().getTimeInMillis());
 
@@ -108,49 +112,50 @@ public class SmartPrecipitationAnalyser {
         }
     }
 
-    /**
-     * Creates the fog devices in the physical topology of the simulation.
-     * @param userId
-     * @param appId
-     */
-    private static void createFogDevices(int userId, String appId) {
-        FogDevice cloud = createFogDevice("cloud", 44800, 40000, 100, 10000, 0, 0.01, 16*103, 16*83.25);
-        cloud.setParentId(-1);
-        fogDevices.add(cloud);
-        FogDevice proxy = createFogDevice("proxy-server", 2800, 4000, 10000, 10000, 1, 0.0, 107.339, 83.4333);
-        proxy.setParentId(cloud.getId());
-        proxy.setUplinkLatency(100); // latency of connection between proxy server and cloud is 100 ms
-        fogDevices.add(proxy);
-        for(int i=0;i<numOfAreas;i++){
-            addArea(i+"", userId, appId, proxy.getId());
-        }
-    }
-
     private static FogDevice addArea(String id, int userId, String appId, int parentId){
         FogDevice router = createFogDevice("a-"+id, 2800, 4000, 1000, 10000, 2, 0.0, 107.339, 83.4333);
         fogDevices.add(router);
-        router.setUplinkLatency(2); // latency of connection between router and proxy server is 2 ms
+        // latency of connection between router and proxy server is 2 ms
+        router.setUplinkLatency(2);
         for(int i=0;i<numOfCamerasPerArea;i++){
             String mobileId = id+"-"+i;
-            FogDevice camera = addCamera(mobileId, userId, appId, router.getId()); // adding a smart camera to the physical topology. Smart cameras have been modeled as fog devices as well.
-            camera.setUplinkLatency(2); // latency of connection between camera and router is 2 ms
+            FogDevice camera = addCamera(mobileId, userId, appId, router.getId());
+            // latency of connection between camera and router is 2 ms
+            camera.setUplinkLatency(2);
             fogDevices.add(camera);
         }
         router.setParentId(parentId);
         return router;
     }
 
+
+    private static void createFogDevices(int userId, String appId) {
+        FogDevice cloud = createFogDevice("cloud", 44800, 40000, 100, 10000, 0, 0.01, 16*103, 16*83.25);
+        cloud.setParentId(-1);
+        fogDevices.add(cloud);
+        FogDevice proxy = createFogDevice("proxy-server", 2800, 4000, 10000, 10000, 1, 0.0, 107.339, 83.4333);
+        proxy.setParentId(cloud.getId());
+        // latency of connection between proxy server and cloud is 100 ms
+        proxy.setUplinkLatency(100);
+        fogDevices.add(proxy);
+        for(int i=0;i<numOfAreas;i++){
+            addArea(i+"", userId, appId, proxy.getId());
+        }
+    }
+
     private static FogDevice addCamera(String id, int userId, String appId, int parentId){
         FogDevice camera = createFogDevice("c-"+id, 500, 1000, 10000, 10000, 3, 0, 87.53, 82.44);
         camera.setParentId(parentId);
-        Sensor sensor = new Sensor("s-"+id, "CAMERA", userId, appId, new DeterministicDistribution(CAM_TRANSMISSION_TIME)); // inter-transmission time of camera (sensor) follows a deterministic distribution
+        Sensor sensor = new Sensor("s-"+id, "CAMERA", userId, appId, new DeterministicDistribution(CAMERA_DELAY));
         sensors.add(sensor);
         Actuator ptz = new Actuator("ptz-"+id, userId, appId, "PTZ_CONTROL");
         actuators.add(ptz);
         sensor.setGatewayDeviceId(camera.getId());
-        sensor.setLatency(40.0);  // latency of connection between camera (sensor) and the parent Smart Camera is 1 ms
+        // latency of connection between camera (sensor) and the parent Smart Camera is 1 ms
+        sensor.setLatency(1.0);
         ptz.setGatewayDeviceId(parentId);
-        ptz.setLatency(1.0);  // latency of connection between PTZ Control and the parent Smart Camera is 1 ms
+        // latency of connection between PTZ Control and the parent Smart Camera is 1 ms
+        ptz.setLatency(1.0);
         return camera;
     }
 
@@ -172,8 +177,8 @@ public class SmartPrecipitationAnalyser {
 
         List<Pe> peList = new ArrayList<Pe>();
 
-        // 3. Create PEs and add these into a list.
-        peList.add(new Pe(0, new PeProvisionerOverbooking(mips))); // need to store Pe id and MIPS Rating
+        // need to store Processing Element id and MIPS Rating
+        peList.add(new Pe(0, new PeProvisionerOverbooking(mips)));
 
         int hostId = FogUtils.generateEntityId();
         long storage = 1000000; // host storage
@@ -219,21 +224,16 @@ public class SmartPrecipitationAnalyser {
      * Function to create the Intelligent Surveillance application in the DDF model.
      * @param appId unique identifier of the application
      * @param userId identifier of the user of the application
-     * @return
      */
     @SuppressWarnings({"serial" })
     private static Application createApplication(String appId, int userId){
 
         Application application = Application.createApplication(appId, userId);
-        /*
-         * Adding modules (vertices) to the application model (directed graph)
-         */
+        // Adding modules (vertices) to the application model (directed graph)
         application.addAppModule("picture-capture", 10);
         application.addAppModule("slot-detector", 10);
 
-        /*
-         * Connecting the application modules (vertices) in the application model (directed graph) with edges
-         */
+        //Connecting the application modules (vertices) in the application model (directed graph) with edges
         application.addAppEdge("CAMERA", "picture-capture", 1000, 500, "CAMERA", Tuple.UP, AppEdge.SENSOR); // adding edge from CAMERA (sensor) to Motion Detector module carrying tuples of type CAMERA
         application.addAppEdge("picture-capture", "slot-detector",
                 1000, 500, "slots",Tuple.UP, AppEdge.MODULE);
